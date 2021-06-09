@@ -1,0 +1,141 @@
+name: Deploy Environment -- Azure
+
+on:
+  deployment:
+
+jobs:
+  deploy_details:
+    name: Define Deployment Details
+    runs-on: ubuntu-20.04
+
+    outputs:
+      container_registry: ${{ steps.deployment_data.outputs.container_registry }}
+      app_container_image: ${{ steps.deployment_data.outputs.app_container_image }}
+      app_container_version: ${{ steps.deployment_data.outputs.app_container_version }}
+
+      deployment_github_ref: ${{ steps.deployment_data.outputs.deployment_github_ref }}
+      app_type: ${{ steps.deployment_data.outputs.app_type }}
+      app_slot_name: ${{ steps.deployment_data.outputs.app_slot_name }}
+      app_name: ${{ steps.deployment_data.outputs.webapp_name }}
+
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v2
+
+      - name: Extract Deployment Details and Report Deployment in Progress
+        id: deployment_data
+        uses: actions/github-script@v4.0.2
+        env:
+          APP_PLAN_NAME: ${{ secrets.AZURE_APP_PLAN_NAME }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const scriptPath = require('path').resolve('./.github/workflows/scripts/deploymentPayload.js')
+              , deploymentPayload = require(scriptPath);
+            ;
+
+            await deploymentPayload(context, core, github).unpackAndStart();
+
+
+  deploy:
+    name: Deploy to Environment
+    runs-on: ubuntu-20.04
+
+    needs:
+      - deploy_details
+
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v2
+        
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.OCTODEMO_GITHUB_AZURE_SERVICE_PROVIDER_CREDENTIALS }}
+
+        # TODO need to validate that the container image actually exists before we try to deploy the azure application!
+
+      - name: Provision WebApp
+        env:
+          WEBAPP_NAME: ${{ needs.deploy_details.outputs.app_name }}
+          RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP_NAME }}
+          APP_SERVICE_PLAN: ${{ secrets.AZURE_APP_PLAN_NAME }}
+        run: |
+          az webapp create --resource-group "$RESOURCE_GROUP" \
+            --plan "$APP_SERVICE_PLAN" \
+            --name "$WEBAPP_NAME" \
+            --deployment-container-image-name busybox
+
+          az webapp update --resource-group "$RESOURCE_GROUP" \
+            --name "$WEBAPP_NAME" \
+            --set tags.type="${{ needs.deploy_details.outputs.app_type }}" \
+              tags.ref="${{ needs.deploy_details.outputs.deployment_github_ref }}" \
+              tags.repository="${{ github.repository }}"
+
+        shell: bash
+
+      - name: Configure WebApp
+        uses: azure/appservice-settings@v1
+        with:
+          app-name: ${{ needs.deploy_details.outputs.app_name }}
+          app-settings-json: |
+            [
+              {
+                "name": "DOCKER_REGISTRY_SERVER_URL",
+                "value": "${{ needs.deploy_details.outputs.container_registry }}",
+                "slotSetting": false
+              },
+              {
+                "name": "DOCKER_REGISTRY_SERVER_USERNAME",
+                "value": "<token>",
+                "slotSetting": false
+              },
+              {
+                "name": "DOCKER_REGISTRY_SERVER_PASSWORD",
+                "value": "${{ secrets.OCTODEMO_OCTODEMOBOT_GHPR_TOKEN }}",
+                "slotSetting": false
+              }
+            ]
+
+      - name: Deploy the WebApp Container
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ needs.deploy_details.outputs.app_name }}
+          images: ${{ needs.deploy_details.outputs.container_registry }}/${{ needs.deploy_details.outputs.app_container_image }}:${{ needs.deploy_details.outputs.app_container_version }}
+
+      - name: Load Deployment
+        timeout-minutes: 2
+        continue-on-error: true
+        run: curl https://${{ needs.deploy_details.outputs.app_name }}.azurewebsites.net
+
+      - name: Report Deployment Status
+        if: always()
+        uses: actions/github-script@v4.0.2
+        env:
+          app_name: ${{ needs.deploy_details.outputs.app_name }}
+          status: ${{ job.status }}
+        with:
+          script: |
+            const scriptPath = require('path').resolve('./.github/workflows/scripts/deploymentManager.js')
+              , DeploymentManager = require(scriptPath);
+              ;
+
+            const mgr = new DeploymentManager(core, context, github);
+            const deploymentId = context.payload.deployment.id;
+
+            let state = 'error'
+              , description = null
+              , url = null
+              ;
+
+            if (process.env.status === 'success') {
+              state = 'success';
+              description = `Deployed into ${context.payload.deployment.environment}`;
+              url = `https://${process.env.app_name}.azurewebsites.net`;
+            } else if (process.env.status === 'failure') {
+              state = 'failure';
+              description = `Deployment failed for ${context.payload.deployment.environment}`;
+            }
+
+            // Update the deployment status and deal with any previous deployments if successful to deactivate them
+            await mgr.updateDeployment(deploymentId, state, description, url);

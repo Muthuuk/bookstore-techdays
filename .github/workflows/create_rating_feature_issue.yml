@@ -1,0 +1,57 @@
+name: Create Rating Feature Issue
+
+# This is a bootstrapping workflow to initialize the repository with a pre-populated issue for building a rating feature
+# on the project.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create:
+    name: Create issue
+    runs-on: ubuntu-20.04
+
+    steps:
+    - name: Checkout Sources
+      uses: actions/checkout@v2
+
+    - name: Create Issue
+      id: create-issue
+      uses: JasonEtco/create-an-issue@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        filename: .github/issues/rating-feature-issue.md
+
+    - name: Add Design Team Comment
+      uses: actions/github-script@v4.0.2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const commentBody = `
+          👋 Hey, I have worked this out and provided the assets in the repository by direct file upload.
+
+          Let me know if you want anything else, I think this image specifies everything you need.
+
+          ![](https://user-images.githubusercontent.com/1982588/84479857-ea579600-ac93-11ea-8877-56b02462cbc5.png)`
+
+          await github.issues.createComment({
+            ...context.repo,
+            issue_number: ${{ steps.create-issue.outputs.number }},
+            body: commentBody
+          })
+
+    - name: Add Product Owner Comment
+      uses: actions/github-script@v4.0.2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const commentBody = `
+          👋 This is great. Scrum masters, can you check how much capacity you need to implement this.
+          We can then decide which sprint we put it in. Let\'s get this in people 😄`
+
+          await github.issues.createComment({
+            ...context.repo,
+            issue_number: ${{ steps.create-issue.outputs.number }},
+            body: commentBody
+          })

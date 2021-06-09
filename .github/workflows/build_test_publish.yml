@@ -1,0 +1,215 @@
+name: Build - Test - Publish
+
+on:
+  push:
+
+# The name of the `Build (ubuntu 20.04, 11)` build is used as a required context inside the repository on protected
+#  branches configuration. Any changes to the OS or Java version will need to be reflected in repository settings.
+
+jobs:
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-20.04
+          - windows-latest
+        java:
+          - 11
+
+    # We need to share details across job boundaries, expose the step outs at the job level
+    outputs:
+      build_version: ${{ steps.maven_build.outputs.version }}
+      container_name: ${{ steps.build_params.outputs.container_name }}
+      container_owner: ${{ steps.build_params.outputs.container_owner }}
+      container_registry: ghcr.io
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Set up JDK 11
+        uses: actions/setup-java@v2
+        with:
+          java-version: 11
+          java-package: jdk
+          distribution: adopt
+
+      # Utilize caching of the resolved plugins and dependencies from previous Maven builds to provide
+      # faster builds when dependencies have not changed.
+      - name: Cache Maven repository
+        uses: actions/cache@v2
+        with:
+          path: ~/.m2/repository
+          # Hash on the POM file as that would need to change to modify the dependencies or plugins in use
+          key: mvn-${{ matrix.java }}-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            mvn-${{ matrix.java }}-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+            mvn-${{ matrix.java }}-${{ runner.os }}
+            mvn-${{ matrix.java }}
+            mvn-
+
+      - name: Define Build Parameters
+        id: build_params
+        uses: actions/github-script@v4.0.2
+        with:
+          script: |
+            const scriptPath = require('path').resolve('./.github/workflows/scripts/buildParameters.js')
+              , buildParameters = require(scriptPath);
+            ;
+            buildParameters(context, core).injectBuildParameters();
+
+      - name: Maven Build Test and Package
+        id: maven_build
+        run: |
+          mvn package -B \
+            -Dsha1="${{ steps.build_params.outputs.maven_sha1 }}" \
+            -Dchangelist="${{ steps.build_params.outputs.maven_changelist }}" \
+            -Dgithub.repository="${{ steps.build_params.outputs.github_repository }}"
+        shell: bash
+
+      - name: Save artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: standalone-${{ matrix.os }}-${{ matrix.java }}.jar
+          path: target/bookstore-*.jar
+
+
+  build_container:
+    name: Build Container
+
+    # Do not run this on dependabot triggered activities as it cannot read the Actions Secrets.
+    if: ${{ !(contains(github.actor, 'dependabot[bot]')) }}
+
+    runs-on: ubuntu-20.04
+
+    needs:
+      - build
+
+    outputs:
+      container_digest: ${{ steps.container_publish.outputs.digest }}
+      container_name_and_tag: ${{ steps.define_container_attributes.outputs.container_name_and_version_tag }}
+      container_name: ${{ steps.define_container_attributes.outputs.container_name }}
+      container_version_tag: ${{ steps.define_container_attributes.outputs.container_version_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Get Jar file artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: standalone-ubuntu-20.04-11.jar
+          path: target
+
+      - name: Create container image name
+        id: define_container_attributes
+        run: |
+          echo ::set-output name=container_name_and_version_tag::${{ needs.build.outputs.container_name }}:${{ needs.build.outputs.build_version }}
+          echo ::set-output name=container_name::${{ needs.build.outputs.container_name }}
+          echo ::set-output name=container_version_tag::${{ needs.build.outputs.build_version }}
+
+      - name: GitHub Container Registry Login
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ needs.build.outputs.container_registry }}
+          username: octodemobo
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+        with:
+          version: v0.5.1
+
+      - name: Cache Container layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build and Push Container
+        id: container_publish
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          build-args: |
+            VERSION=${{ needs.build.outputs.build_version }}
+            REPOSITORY_NAME=${{ github.repository }}
+            revision=${{ github.sha }}
+          push: true
+          tags: ${{ needs.build.outputs.container_registry }}/${{ needs.build.outputs.container_owner }}/${{ steps.define_container_attributes.outputs.container_name_and_version_tag }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new
+
+      # Temp fix to prevent issues with cache growth
+      # https://github.com/docker/build-push-action/issues/252
+      # https://github.com/moby/buildkit/issues/1896
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Publish Container as a Status
+        id: container_image_status
+        uses: Sibz/github-status-action@v1.1.5
+        with:
+          authToken: ${{ secrets.GITHUB_TOKEN }}
+          state: success
+          context: Container Image Published - app
+          description: ${{ steps.define_container_attributes.outputs.container_name_and_version_tag }}
+
+
+  continuous_delivery:
+    name: Continous Delivery Deployment
+
+    # We only perform continuous delivery workflows (deploying through to production) from the default branch
+    if: github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-20.04
+
+    needs:
+      - build
+      - build_container
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Get temporary token for creating deployment
+        id: temp_token
+        uses: peter-murray/workflow-application-token-action@v1.0.3
+        with:
+          application_id: ${{ secrets.OCTODEMOBOT_APPLICATION_ID_REPO_AUTOMATION }}
+          application_private_key: ${{ secrets.OCTODEMOBOT_APPLICATION_KEY_REPO_AUTOMATION }}
+
+      - name: Create Deployment
+        id: create_deployment
+        uses: actions/github-script@v4.0.2
+        env:
+          container_registry: ${{ needs.build.outputs.container_registry }}
+          app_container_image: ${{ needs.build.outputs.container_owner }}/${{ needs.build_container.outputs.container_name }}
+          app_container_version: ${{ needs.build_container.outputs.container_version_tag }}
+        with:
+          github-token: ${{ steps.temp_token.outputs.token }}
+          script: |
+            const scriptPath = require('path').resolve('./.github/workflows/scripts/createDeployment.js')
+              , createDeployment = require(scriptPath);
+            ;
+
+            const payload = {
+              context: context,
+              github: github,
+              containerRegistry: 'ghcr.io',
+              appContainerImage: process.env.app_container_image,
+              appContainerVersion: process.env.app_container_version,
+              sha: context.sha,
+              head: context.ref,
+              environment: 'prod',
+            }
+            await createDeployment(payload);

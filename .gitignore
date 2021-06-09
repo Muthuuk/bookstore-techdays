@@ -1,0 +1,22 @@
+# Maven
+target
+
+# Custom scripts
+scripts/.env
+
+# IntelliJ Idea project files
+.idea
+*.iml
+
+# Eclipse files
+.settings
+.classpath
+.project
+
+# MacOS files
+.DS_Store
+
+.factorypath
+
+# Local terraform working files
+.terraform

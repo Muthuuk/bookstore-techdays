@@ -1,0 +1,139 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "verify",
+      "type": "shell",
+      "command": "mvn -B verify",
+      "group": "build"
+    },
+
+    {
+      "label": "package",
+      "type": "shell",
+      "command": "mvn -B package",
+      "group": "build",
+      "problemMatcher": [],
+    },
+
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "mvn -B test",
+      "group": "test"
+    },
+
+    {
+      "label": "demo: code feature",
+      "type": "shell",
+      "command": "patches/apply_patch_set.sh",
+      "args": [
+        "${input:CODE_FEATURE}",
+        "${input:BRANCH_NAME}"
+      ],
+      "group": "none",
+      "isBackground": true,
+      "problemMatcher": [],
+      "promptOnClose": false,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+
+    {
+      "label": "docker: build container",
+      "type": "shell",
+      "command": "docker",
+      "args": [
+        "build",
+        ".",
+        "--build-arg",
+        "VERSION=${input:MAVEN_PROJECT_VERSION}",
+        "--tag",
+        "demo-server:latest"
+      ],
+      "dependsOn": [
+        "package"
+      ],
+      "group": "none",
+      "isBackground": false,
+      "problemMatcher": [],
+      "promptOnClose": false,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+
+    {
+      "label": "docker: run container",
+      "type": "shell",
+      "command": "docker",
+      "args": [
+        "run",
+        "-it",
+        "-p${input:SERVER_PORT}:${input:SERVER_PORT}",
+        "-eSERVER_PORT=${input:SERVER_PORT}",
+        "--rm",
+        "--name",
+        "demo-server",
+        "demo-server:latest"
+      ],
+      "group": "none",
+      "isBackground": false,
+      "problemMatcher": [],
+      "promptOnClose": false,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "new",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    }
+  ],
+
+  "inputs": [
+    {
+      "id": "MAVEN_PROJECT_VERSION",
+      "type": "promptString",
+      "default": "1.0.0-SNAPSHOT",
+      "description": "Project version number"
+    },
+
+    {
+      "id": "SERVER_PORT",
+      "type": "promptString",
+      "default": "8080",
+      "description": "Demo server port"
+    },
+
+    {
+      "id": "CODE_FEATURE",
+      "type": "pickString",
+      "description": "Select the desired patch set",
+      "default": "book-star-rating",
+      "options": [
+        "book-star-rating",
+        "book-search"
+      ]
+    },
+
+    {
+      "id": "BRANCH_NAME",
+      "type": "promptString",
+      "default": "",
+      "description": "Provide a feature branch name or leave blank to use default"
+    }
+  ]
+}

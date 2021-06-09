@@ -1,0 +1,65 @@
+name: Destroy Environment -- Azure
+
+on:
+  deployment_status
+
+jobs:
+  deploy_details:
+    name: Extract Deployment Details
+    if: github.event.deployment_status.state == 'failure'
+
+    runs-on: ubuntu-20.04
+
+    outputs:
+      deployment_github_ref: ${{ steps.deployment_data.outputs.deployment_github_ref }}
+      app_type: ${{ steps.deployment_data.outputs.app_type }}
+      webapp_name: ${{ steps.deployment_data.outputs.webapp_name }}
+
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v2
+
+      - name: Extract Deployment Details and Report Deployment in Progress
+        id: deployment_data
+        uses: actions/github-script@v4.0.2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const scriptPath = require('path').resolve('./.github/workflows/scripts/deploymentPayload.js')
+              , deploymentPayload = require(scriptPath);
+            ;
+            await deploymentPayload(context, core, github).extractDeploymentDetails();
+
+
+  destroy:
+    name: Azure Destroy Webapps
+
+    runs-on: ubuntu-20.04
+
+    needs:
+       - deploy_details
+
+    steps:
+      - name: Checkout Sources
+        uses: actions/checkout@v2
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.OCTODEMO_GITHUB_AZURE_SERVICE_PROVIDER_CREDENTIALS }}
+
+      - name: Delete Web Apps attached to PR
+        env:
+          ANSIBLE_VERBOSITY: -vv
+        run: |
+          docker run \
+            -v `pwd`/ansible:/ansible \
+            -w /ansible \
+            -e SERVICE_PLAN="${{ secrets.AZURE_APP_PLAN_NAME }}" \
+            -e RESOURCE_GROUP="${{ secrets.AZURE_RESOURCE_GROUP_NAME }}" \
+            -e APP_TYPE="${{ needs.deploy_details.outputs.app_type }}" \
+            -e DEPLOYMENT_REF="${{ needs.deploy_details.outputs.deployment_github_ref }}" \
+            -e AZURE_JSON_CREDENTIALS='${{ toJSON(secrets.OCTODEMO_GITHUB_AZURE_SERVICE_PROVIDER_CREDENTIALS) }}' \
+            -e GITHUB_REPOSITORY="${{ github.repository }}" \
+            ghcr.io/octodemo/container-ansible-development:base-20210217 ./destroy_azure_webapps.yml $ANSIBLE_VERBOSITY
+        shell: bash

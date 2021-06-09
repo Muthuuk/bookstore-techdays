@@ -1,0 +1,39 @@
+{
+  "dockerComposeFile": [
+    "docker-compose.yml"
+  ],
+
+  "service": "dev",
+
+  "forwardPorts": [
+    8080
+  ],
+
+  "extensions": [
+    "ms-azuretools.vscode-docker",
+    "redhat.java",
+    "vscjava.vscode-maven",
+    "vscjava.vscode-java-debug",
+    "vscjava.vscode-java-dependency",
+    "vscjava.vscode-java-test",
+    "dgileadi.java-decompiler",
+    "redhat.vscode-xml",
+    "redhat.vscode-yaml"
+  ],
+
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash",
+
+    "java.project.importOnFirstTimeStartup": "automatic",
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.server.launchMode": "Standard",
+    "java.test.message.hintForSetingDefaultConfig": false,
+
+    "maven.pomfile.autoUpdateEffectivePOM": true,
+
+    "telemetry.enableTelemetry": false,
+    "extensions.ignoreRecommendations": true
+  },
+
+  "postCreateCommand": "mvn compile"
+}

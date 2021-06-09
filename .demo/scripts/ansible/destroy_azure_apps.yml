@@ -1,0 +1,42 @@
+---
+
+- hosts: localhost
+  tasks:
+    - name: Parse Terraform Context
+      set_fact:
+        context: "{{ lookup('env', 'TERRAFORM_PARAMETERS_B64') | b64decode | from_json }}"
+
+    - name: Validate Context
+      assert:
+        that:
+          - context is defined
+          - context.github_context is defined
+          - context.github_context.target_repository is defined
+          - context.github_context.target_repository.owner is defined
+          - context.github_context.target_repository.repo is defined
+
+    - name: Set Play Facts
+      set_fact:
+        azure_resource_group_name: 'bookstore-demo-{{ context.github_context.target_repository.owner }}-{{ context.github_context.target_repository.repo }}'
+
+    - name: Discover Azure Application Service Plan
+      azure_rm_appserviceplan_info:
+        resource_group: '{{ azure_resource_group_name }}'
+        name: '{{ azure_resource_group_name }}'
+      register: existing_service_plans
+
+    - block:
+      - name: Discover Azure WebApp Instances
+        azure_rm_webapp_info:
+          resource_group: '{{ azure_resource_group_name }}'
+        register: existing_webapps
+
+      - name: Destroy WebApps under Resource Group
+        azure_rm_webapp:
+          resource_group: '{{ item.resource_group }}'
+          name: '{{ item.name }}'
+          state: absent
+        loop: '{{ existing_webapps.webapps }}'
+        when: existing_webapps.webapps | length > 0
+
+      when: existing_service_plans.appserviceplans | length > 0

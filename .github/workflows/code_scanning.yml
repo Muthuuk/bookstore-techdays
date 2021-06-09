@@ -1,0 +1,50 @@
+name: Code scanning
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: CodeQL Code Scanning
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
+      # Utilize caching of the resolved plugins and dependencies from previous Maven builds to provide
+      # faster builds when dependencies have not changed.
+      - name: Cache Maven repository
+        uses: actions/cache@v2
+        with:
+          path: ~/.m2/repository
+          # Hash on the POM file as that would need to change to modify the dependencies or plugins in use
+          key: mvn-${{ matrix.java }}-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            mvn-${{ matrix.java }}-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+            mvn-${{ matrix.java }}-${{ runner.os }}
+            mvn-${{ matrix.java }}
+            mvn-
+
+      - name: Initialize CodeQL Scanning
+        uses: github/codeql-action/init@v1
+        with:
+          languages: java
+
+      # We are using a custom build step to have greater control over the build process over using autobuild
+      - name: Custom Build Step
+        run: mvn compile -B
+        shell: bash
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v1

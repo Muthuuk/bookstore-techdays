@@ -1,0 +1,16 @@
+{
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Launch DemoServer",
+      "request": "launch",
+      "mainClass": "com.github.demo.DemoServer",
+      "projectName": "bookstore-v2",
+      "env": {
+        "STATIC_RESOURCES": "${workspaceFolder}/src/main/webapp/static/"
+      }
+    }
+  ]
+}
