@@ -27,6 +27,7 @@ You can run the web application locally using Maven for development purposes, wh
 have Maven and a JDK installed, or inside a container that has Maven and JDK installed.
 
 
+
 ### GitHub Codespaces
 
 This repository is configured with GitHub Codespaces to make it easy to start with a development environment fully configured.
