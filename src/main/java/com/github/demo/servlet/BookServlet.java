@@ -65,7 +65,15 @@ public class BookServlet extends HttpServlet {
         resp.setContentType("text/html; charset=UTF-8");
 
         try {
-            List<Book> books = bookService.getBooks();
+            List<Book> books;
+
+            String searchTerm = req.getParameter("title");
+            if (searchTerm != null) {
+                books = bookService.searchBooks(searchTerm);
+            } else {
+                books = bookService.getBooks();
+            }
+
             ctx.setVariable("books", books);
             engine.process("books", ctx, resp.getWriter());
         } catch (BookServiceException e) {
