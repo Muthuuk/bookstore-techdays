@@ -11,19 +11,34 @@ public class Book {
 
     private String cover;
 
-    public Book() {
+    private int rating;
 
+    public Book() {
+        this.title = "";
+        this.author = "";
+        this.cover = "";
+        this.rating = 0;
     }
 
     public Book(String author, String title) {
+        this();
         this.author = author;
         this.title = title;
     }
 
     public Book(String author, String title, String cover) {
+        this();
         this.author = author;
         this.title = title;
         this.cover = cover;
+    }
+
+    public Book(String author, String title, String cover, int rating) {
+        this();
+        this.author = author;
+        this.title = title;
+        this.cover = cover;
+        this.rating = rating;
     }
 
     public String getTitle() {
@@ -52,5 +67,13 @@ public class Book {
 
     public void setCover(String cover) {
         this.cover = cover;
+    }
+
+    public int getRating() {
+        return rating;
+    }
+
+    public void setRating(int rating) {
+        this.rating = rating;
     }
 }
