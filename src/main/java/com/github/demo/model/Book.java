@@ -17,7 +17,7 @@ public class Book {
         this.title = "";
         this.author = "";
         this.cover = "";
-        this.rating = 0;
+        this.rating = 5;
     }
 
     public Book(String author, String title) {
